@@ -1,0 +1,10 @@
+*.pyc
+**/.ipynb_checkpoints/**
+*.egg-info
+.idea/**
+*.json
+*.pth
+.gitattributes
+tralo/static/**
+__pycache__
+doctest/logs/**

@@ -1,0 +1,37 @@
+# specify general training configuration
+configuration:
+  batch_size: 256
+  optimizer: torch.optim.AdamW
+  optimizer_args: {}
+  lr: 0.0001
+  
+  trainer: experiment_setup.train
+  scorer: experiment_setup.score
+
+  max_iterations: 500
+  interval: 50
+  val_interval: 200
+  checkpoint_iterations: [250]
+
+  model: torchvision.models.resnet18
+  
+  # for a custom model
+  # model: models.my_models.MyModelName
+
+  loss: torch.nn.functional.cross_entropy
+
+# specify test configuration
+test_configuration: 
+  dataset: datasets.cifar.CIFAR10
+  reg_c: 10.0
+  batch_size: 16
+
+# you can explicitly which columns should be shown
+# columns: [i, name, train_loss, val_acc]
+
+
+# individual training configuration for each run
+individual_configurations:
+
+- {name: run1, lr: 0.0003}
+- {name: run2, some_variable: 42}

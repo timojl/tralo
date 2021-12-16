@@ -1,0 +1,37 @@
+configuration:
+  batch_size: 48
+  val_batch_size: 4
+  optimizer: torch.optim.AdamW
+  lr: 0.001
+
+  trainer: mnist_experiment.train_loop
+  scorer: mnist_experiment.score
+
+  # a model class must be provided here
+  model: mnist_experiment.Model
+
+  # use max_iterations: 0 to skip training
+  max_iterations: 2000
+
+  max_epochs: 10
+
+  cuda: True
+
+  loss: torch.nn.functional.cross_entropy
+
+test_configuration:
+  loss: torch.nn.functional.cross_entropy
+  batch_size: 64
+  max_iterations: 10
+  shuffle: True
+
+  # special attributes
+  # load_weights: weights.pth  # load weights at test time instead of   
+
+individual_configurations:
+
+# names can be provided to indicate the folder. Otherwise a name based on the config arguments hash is generated.
+- {name: small_k, k: 1}
+- {name: mid_k}
+- {name: large_k, k: 3}
+

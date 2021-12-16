@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TrainingLogger</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.9.2/css/bulma.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <link rel="icon" type="image/svg+xml" href="static/favicon.svg">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/3.28.1/apexcharts.min.js"></script>
+
+  <style>
+    .panel-block { flex-wrap: wrap; border-radius: 5px; border-width: 0px; border-style: solid;}
+    .panel-block input{ flex-basis: 10%; }
+    .panel-block span.run_name { flex-basis: 80%; }
+    .panel-block span.run_date { color: #aaa; padding: 3px; border-radius: 3px;}
+
+    .info-tables {font-size: 8pt}
+    .obj-group { display: flex; flex-wrap: wrap}
+    .obj { display:block; width: 300px; height: 300px; margin: 3px; background-color: red}
+    a.fas {color:white}
+    </style>
+
+</head>
+
+<body>
+  <section class="section">
+    <div class="container is-fluid">
+      <div class="columns">
+        <div class="column is-one-fifth">
+          <nav class="panel is-size-7">
+            <p class="panel-heading has-background-primary has-text-white-ter">
+              TraLo 0.1
+              <span class="icon is-pulled-right">
+                <a class="fas fa-sync" onclick="javascript:location.reload()"></a>
+              </span>
+            </p>
+            <div class="panel-block">
+              <p class="control has-icons-left">
+                <input class="input" type="text" placeholder="Search" id="run_filter">
+                <span class="icon is-left">
+                  <i class="fas fa-search" aria-hidden="true"></i>
+                </span>
+              </p>
+            </div>
+            <p class="panel-tabs">
+              <a id="run_sort_by_date">by date</a>              
+              <a id="run_sort_by_name">by name</a>
+            </p>
+            <div id="panel_blocks">
+            </div>
+          </nav>
+        </div>
+
+        <div class="column is-four-fifth">
+
+          <div class="no_columns has-text-centered">
+            Please select a training run.
+          </div>
+
+          <div class="columns">
+            <div class="column is-one-third-tablet is-one-quarter-desktop info-tables">
+              <table class="table is-narrow" id="statistics"></table>
+              <table class="table is-narrow" id="config_general"></table>
+              <table class="table is-narrow" id="config_opt"></table>
+              <table class="table is-narrow" id="config_other"></table>
+            </div>
+            <div class="column">
+
+              <div id="loss_columns" class="obj-group"></div>
+
+              <h1 class="title is-size-5 log-content">Metrics</h1>
+              <div id="metric_columns" class="obj-group"></div>
+
+              <h1 class="title is-size-5 log-content">Utilization</h1>
+              <div id="util_columns" class="obj-group"></div>
+
+            </div>
+          </div>
+
+
+        </div>
+      </div>
+
+      <script>
+
+        function render_tables() {
+          // takes interval tables variable and renders HTML of table
+          
+          table_endpoints.forEach(x => document.querySelector(x[1]).innerHTML = '')
+
+          Object.keys(tables).forEach(function (endpoint_url, idx) {
+
+            tab = tables[endpoint_url]
+            sel = table_endpoints[idx][1]
+            
+            // get all keys
+            all_keys = []
+            Object.values(tab).forEach(x => Object.keys(x).forEach(y => all_keys.includes(y) ? null : all_keys.push(y)))
+
+            console.log(endpoint_url, tab, sel)
+
+            if (all_keys.length > 0) { // if not empty
+
+              row = document.querySelector(sel).insertRow(-1);
+              console.log(row);
+              col1 = row.insertCell(0);
+
+              col1.innerHTML = '<strong>' + table_endpoints[idx][2] + '</strong>'
+              col2 = row.insertCell(1);
+
+              all_keys.forEach(function (key) {
+                row = document.querySelector(sel).insertRow(-1);
+                col1 = row.insertCell(0);
+                col1.innerHTML = key
+                col2 = row.insertCell(1);
+
+                values = []
+                Object.keys(tab).forEach(function (run) {
+                  if (Object.keys(tab[run]).includes(key)) {
+                    values.push(tab[run][key])
+                  }
+                  else {
+                    values.push('-')
+                  }
+                })
+
+
+                if ((new Set(values)).size == 1) {
+                  values.forEach(function (value, idx) { col2.innerHTML = value });
+                } else {
+                  values.forEach(function (value, idx) { col2.innerHTML += '<span style="font-weight: bold; color:' + colors[idx] + '">' + value + ' </span>' });
+                }
+              })
+            }
+          })
+        }
+
+        async function render_graphs(chart_name) {
+          // takes interval series_per_chart variable and renders HTML
+          series_list = []
+          for (var key in series_per_chart[chart_name]) {
+            series_list.push({ name: key, data: series_per_chart[chart_name][key] })
+          }
+
+          if (chart_name in charts) { // normally not the case, only if runs are removed before fully loaded
+            charts[chart_name].updateSeries(series_list, false);
+            width = chart_name == 'loss' ? '600px' : '300px'
+            charts[chart_name].updateOptions({title: {text: chart_name}, chart: {width: width, height: '300px'}})
+          }
+        }
+
+        async function clean_charts(chart_name) {
+          if ((!(chart_name in series_per_chart)) || (Object.keys(series_per_chart[chart_name]).length == 0)) {
+
+            if (chart_name in charts) { // normally not the case, only if runs are removed before fully loaded
+              charts[chart_name].destroy()
+              delete charts[chart_name]
+            }
+            chart_divs[chart_name].remove()
+            delete chart_divs[chart_name]
+          }
+        }
+
+        function render_run_sidebar() {
+          main = document.querySelector('#panel_blocks')
+          main.innerHTML = ''
+
+          var filter_val = document.querySelector('#run_filter').value;
+          runs_filtered = training_runs.filter(a => filter_val == '' ? true : (active_runs.includes(a[0]) || a[0].includes(filter_val)))
+
+          if (training_run_sort_by == 'date')
+            runs_filtered.sort((a, b) => a[1] < b[1])
+          else
+            runs_filtered.sort((a, b) => a[0] < b[0])
+
+          runs_filtered.forEach(function ([run_name, timestamp]) {
+            div = document.createElement('label');
+            div.classList.add('panel-block')
+
+            var date = new Date(parseInt(timestamp)*1000);
+
+            run_div_by_name[run_name] = div;
+            
+            var checked = active_runs.includes(run_name) ? 'checked' : ''
+            div.innerHTML = `<input type="checkbox" value="${run_name}" ${checked}> <span class="run_name">${run_name}</span>`;
+            div.innerHTML += `<span class="run_date">${date.toLocaleTimeString()} ${date.toLocaleDateString()}</span>`
+            main.appendChild(div)
+            div.children[0].addEventListener('click', select_run);
+          })
+        }
+
+        async function select_run(i) {
+          var run_name = this.value;
+
+          run_div_by_name[run_name].style.borderColor = colors[active_runs.length];
+          run_div_by_name[run_name].style.borderWidth = '3px';
+
+          console.log(run_name);
+
+          if (!active_runs.includes(run_name)) {
+
+            console.log('add')
+            
+            set_visible(true);
+            all_promises = []
+            active_runs.push(run_name)
+
+            graph_endpoints.forEach(function (endpoint) {
+              endpoint_promises[endpoint] = fetch(endpoint[0] + '/' + run_name).then(res => res.json()).then(function (json) {
+
+                Object.keys(json).forEach(async function (chart_name) {
+
+                  console.log(run_name, active_runs)
+                  if (!(chart_name in charts)) {
+                    // create a new chart
+
+                    chart_div = document.createElement('div');
+                    endpoint[2].forEach(x => chart_div.classList.add(x));
+                    document.querySelector(endpoint[1]).appendChild(chart_div);
+                    chart_divs[chart_name] = chart_div
+
+                    var this_options = { ...options };
+                    this_options['chart']['type'] = endpoint[3];
+
+                    console.log(chart_div)
+                    var new_chart = new ApexCharts(chart_div, this_options);
+
+                    charts[chart_name] = new_chart;
+                    series_per_chart[chart_name] = {}
+                  }
+                  series_per_chart[chart_name][run_name] = json[chart_name]
+                  chart_promises[chart_name] = charts[chart_name].render().then(() => render_graphs(chart_name));
+                })
+
+              });
+            });
+
+            Promise.all(Object.values(endpoint_promises)).then(function () {
+              Object.values(charts).forEach(x => x.update());
+            })
+
+            table_endpoints.forEach(function (item) {
+              fetch(item[0] + run_name)
+                .then(function (response) {
+                  return response.json()
+                }).then(function (json) {
+                  tables[item[0]][run_name] = json;
+                  render_tables()
+                })
+            })
+          }
+          else { // active runs contains run_name
+
+            // wait for charts and endpoints
+            Promise.all(Object.values(chart_promises).concat(Object.values(endpoint_promises))).then(function() {
+              active_runs.splice(active_runs.indexOf(run_name), 1)
+
+              run_div_by_name[run_name].style.borderWidth = '0';
+              Object.keys(run_div_by_name).forEach(function(run_name) {
+                run_div_by_name[run_name].style.borderColor = colors[active_runs.indexOf(run_name)];
+              })
+
+              Object.keys(series_per_chart).forEach(cn => delete series_per_chart[cn][run_name])
+              Object.keys(series_per_chart).forEach(cn => render_graphs(cn))
+              Object.keys(charts).forEach(cn => clean_charts(cn))
+              Object.keys(tables).forEach(ep => delete tables[ep][run_name])
+
+              render_tables()
+              if (Object.keys(charts).length == 0) {
+                set_visible(false);
+              }
+           })
+          }
+        }
+
+
+        var options = {
+          chart: {
+            type: 'line',
+            //toolbar: { show: false },
+            height: '100%',
+          },
+          legend: { show: false },
+          dataLabels: { enabled: false },
+          series: [],
+          //title: { text: "loss" },
+          //animations: { enabled: false },
+          stroke: { width: 2 },
+          xaxis: { tickAmount: 15 }
+        }
+
+        function set_visible(val) {
+          document.querySelectorAll('.log-content').forEach(x => x.hidden = !val);
+          document.querySelector('.no_columns').hidden = val;
+          console.log(document.querySelector('.no_columns').hidden, val);
+        }
+
+        document.querySelector('#run_filter').onkeyup = render_run_sidebar;
+        document.querySelector('#run_sort_by_date').onclick = () => update_run_sort('date');
+        document.querySelector('#run_sort_by_name').onclick = () => update_run_sort('name');
+
+        function update_run_sort(crit) {
+          document.querySelector('#run_sort_by_name').classList.remove('is-active')
+          document.querySelector('#run_sort_by_date').classList.remove('is-active')
+          document.querySelector('#run_sort_by_' + crit).classList.add('is-active')
+          training_run_sort_by = crit;
+          render_run_sidebar();
+        }
+
+        window.onload = function () {
+          console.log('loaded')
+          set_visible(false);
+
+          fetch('/list_logs')
+            .then(function (response) {
+              return response.json()
+            }).then(function (json) {
+              training_runs = json;
+              render_run_sidebar()
+            });
+
+        };
+
+        colors = ["#008FFB", "#00E396", "#FEB019", "#FF4560", "#775DD0"]
+
+        // States
+        active_runs = [];
+        training_runs = []
+        training_run_sort_by = 'date'
+        color_by_run = {}
+
+        run_div_by_name = {}
+
+        chart_promises = {}; //chart_name -> promise
+        endpoint_promises = {};
+        series_per_chart = {} // chart_name -> run_id
+        chart_divs = {} // chart_name -> div
+        charts = {} // chart_name -> chart
+
+        table_endpoints = [
+          ['/statistics/', '#statistics', 'Statistics'],
+          ['/config/general/', '#config_general', 'General'],
+          ['/config/opt/', '#config_opt', 'Optimizer'],
+          ['/config/other/', '#config_other', 'Other'],
+        ]
+        tables = {} // endpoint_url -> run_id
+        table_endpoints.forEach(function (item) { tables[item[0]] = {} })
+
+        graph_endpoints = [
+          ['/loss', '#loss_columns', ['is-one-half'], 'line'],
+          ['/utils', '#util_columns', [], 'area'],
+          ['/metrics', '#metric_columns', ['tile'], 'line'],
+        ]
+        update_run_sort('date');
+      </script>
+
+    </div>
+  </section>
+</body>
+
+</html>
